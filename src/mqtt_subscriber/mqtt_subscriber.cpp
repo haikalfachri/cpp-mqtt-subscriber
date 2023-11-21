@@ -1,65 +1,80 @@
 #include "mqtt_subscriber.h"
-
 #include <iostream>
-
 #include "mqtt/async_client.h"
+#include "../globals/globals.h"
 
-void connection_lost(const std::string& cause) override {
-    std::cout << "Connection lost: " << cause << std::endl;
+using namespace std;
+
+void MqttCallback::connection_lost(const string &cause)
+{
+    cout << "Connection lost: " << cause << endl;
 }
 
-void message_arrived(mqtt::const_message_ptr msg) override {
-    std::cout << "Message received: " << msg->to_string() << std::endl;
+void MqttCallback::message_arrived(mqtt::const_message_ptr msg)
+{
+    cout << "Message received: " << msg->to_string() << endl;
     received_message = msg->to_string();
 }
 
-void delivery_complete(mqtt::delivery_token_ptr token) override {}
+void MqttCallback::delivery_complete(mqtt::delivery_token_ptr token) {}
 
-std::string getReceivedMessage() const {
-    return received_message;
+string MqttCallback::getReceivedMessage() const
+{
+    return this->received_message;
 }
 
-void clearReceivedMessage() {
+void MqttCallback::clearReceivedMessage()
+{
     received_message.clear();
 }
 
-MqttSubscriber::MqttSubscriber(std::string address, std::string clientId) : client(address, clientId) {}
+MqttSubscriber::MqttSubscriber() : client("tcp://" + env_reader->get("SERVER_ADDRESS") + ":" + env_reader->get("SERVER_PORT"), env_reader->get("CLIENT_ID")) {}
 
-void MqttSubscriber::run(std::string topic) {
-    try {
-        MqttCallback callback;
-        client.set_callback(callback);
-        mqtt::const_message_ptr msg;
+mqtt::async_client &MqttSubscriber::get_client()
+{
+    return this->client;
+}
 
-        connOpts.set_keep_alive_interval(20);
-        connOpts.set_clean_session(true);
+void MqttSubscriber::run()
+{
+    mqtt::async_client &client = this->get_client();
 
-        MqttCallback callback;
-        client.set_callback(callback);
-        
+    mqtt::connect_options conn_opts;
+    conn_opts.set_keep_alive_interval(20);
+    conn_opts.set_clean_session(true);
+
+    MqttCallback callback;
+    client.set_callback(callback);
+    try
+    {
         mqtt::token_ptr conn_token = client.connect(conn_opts);
         conn_token->wait();
 
-        if (!conn_token->is_complete()) {
-            std::cerr << "Unable to connect to MQTT server" << std::endl;
-            return 1;
+        if (!conn_token->is_complete())
+        {
+            cerr << "Unable to connect to MQTT server" << endl;
+            return;
         }
 
-        std::cout << "Connected to MQTT server" << std::endl;
+        cout << "Connected to MQTT server" << endl;
 
-        client.subscribe(TOPIC, 0);
+        client.subscribe(env_reader->get("TOPIC"), stoi(env_reader->get("QOS")));
 
-        std::cout << "Subscribed to topic: " << TOPIC << std::endl;
+        cout << "Subscribed to topic: " << env_reader->get("TOPIC") << endl;
 
-        while (true) {
-            std::string received_msg = callback.getReceivedMessage();
-            if (!received_msg.empty()) {
-                std::cout << "Received message: " << received_msg << std::endl;
+        while (true)
+        {
+            string received_msg = callback.getReceivedMessage();
+            if (!received_msg.empty())
+            {
+                cout << "Received message: " << received_msg << endl;
                 callback.clearReceivedMessage();
             }
         }
-    } catch (const mqtt::exception& exc) {
-        std::cerr << "Error: " << exc.what() << std::endl;
-        return 1;
+    }
+    catch (const mqtt::exception &exc)
+    {
+        cerr << "Error: " << exc.what() << endl;
+        return;
     }
 }
